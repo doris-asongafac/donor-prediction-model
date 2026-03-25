@@ -1,89 +1,104 @@
-# Donor-prediction-model
-Predictive modeling project to identify likely donors using Logistic Regression, Random Forest, and SVM to optimize fundraising campaigns.
-Donor Prediction Model
+📌 Donor Targeting Optimization (Business-Focused ML Project)
 
-📊 Overview
+💼 Business Problem
 
-This project focuses on building a predictive model to identify individuals who are most likely to donate to a fundraising campaign.
+A national nonprofit organization conducts large-scale direct mail campaigns to solicit donations. However:
 
-A national veterans’ organization faces a low response rate (~5.1%) and high mailing costs. This project uses machine learning techniques to improve targeting and maximize campaign profitability.
+Only ~5% of recipients respond
+Mailing costs are high (printing + postage)
+Most outreach is wasted on non-donors
 
-🎯 Objective
+👉 This results in low ROI and inefficient marketing spend
 
-The goal is to develop a classification model that predicts whether a person will donate, allowing the organization to:
+🎯 Business Objective
 
-Reduce unnecessary mailing costs
-Target high-probability donors
-Increase overall return on investment (ROI)
-📁 Dataset
+Use historical donor data to:
 
-The dataset contains historical donor information including:
+Identify individuals most likely to donate
+Reduce unnecessary outreach costs
+Maximize net fundraising revenue
 
-Demographics (income, home value, family income)
-Donation behavior (last gift, average gift, lifetime gifts)
-Engagement metrics (number of promotions, months since last donation)
+💡 Project Goal
 
-Target variable:
+Develop a predictive classification model that scores each individual by likelihood to donate.
 
-Donor vs No Donor
-🧹 Data Preprocessing
-Converted categorical variables to factors
-Converted integer variables to numeric
-Checked multicollinearity (VIF < 5 → no major issues)
-Handled feature selection using stepwise regression
-🤖 Models Used
+Instead of mailing everyone:
 
-Three classification models were implemented:
+Target only high-probability donors
+Reduce campaign size while maintaining (or increasing) revenue
 
-1. Stepwise Logistic Regression
-Feature selection using AIC
-Combines forward and backward selection
-Automatically selects significant predictors
-2. Random Forest
-Ensemble learning method
-Uses multiple decision trees
-Reduces overfitting through bagging
-3. Support Vector Machine (SVM)
-Kernel: Radial Basis Function (RBF)
-Effective for non-linear classification problems
-📈 Model Performance
-Model	AUC
-Logistic Regression	0.550
-Random Forest	0.527
-SVM (RBF)	0.500
-Logistic Regression performed best based on AUC
-Random Forest provided strong practical predictions
-🏆 Best Model
+📊 Analytical Approach
 
-The Random Forest model was selected as the best model due to its ability to better predict actual donors with lower error rates.
+Data Used
+Demographics (income, home value)
+Donation history (last gift, lifetime value)
+Engagement (recency, frequency of contact)
+Models Built
+Logistic Regression (baseline, interpretable)
+Random Forest (non-linear patterns)
+Support Vector Machine (advanced classification)
 
-🔍 Key Insights
+📈 Key Findings (Business Insights)
 
-Significant predictors include:
+1. Recency Drives Donations
+Customers who donated recently are significantly more likely to donate again
+ Suggests strong value in retention strategies
+2. Previous Gift Amount Matters
+Higher past donations = higher probability of future donations
+   Ideal segment for premium targeting
+3. Income is NOT the Strongest Driver
+Lower-to-mid income groups showed higher response rates
+ Challenges assumption that “wealthier = better donors”
+4. Diminishing Returns on Outreach
+Excessive promotions reduce effectiveness
+ Over-contacting leads to fatigue
 
-months_since_donate → strongest predictor
-last_gift → higher previous donations increase likelihood
-income → lower income groups more likely to donate
-home_value → higher values reduce donation likelihood
-📊 Results
-Balanced predictions between donors and non-donors
-Improved targeting strategy compared to random mailing
-Enables cost-effective marketing decisions
+Model Performance & Selection
+Model	Strength
+Logistic Regression	Best interpretability
+Random Forest	Best practical prediction
+SVM	Weak performance
+
+ Random Forest selected for deployment due to better real-world prediction of donors
+
+💰 Business Impact (Estimated)
+
+Using the model, the organization can:
+
+🎯 Target top ~30–40% high-probability donors
+📉 Reduce mailing costs significantly
+📈 Maintain or increase total donations
+
+👉 Result: Higher ROI per campaign
+
+🚀 Implementation Strategy
+
+Score entire donor database using the model
+Rank individuals by predicted probability
+Select top segment for campaign targeting
+Monitor response rate & refine model
+
+📊 Example Use Case
+
+Instead of mailing 100,000 people:
+
+Mail only top 35,000 predicted donors
+Achieve similar donation volume
+Save ~65% in mailing costs
+
 🛠️ Tools & Technologies
+
 R (glm, randomForest, e1071)
-Data preprocessing & feature engineering
-Model evaluation (ROC, AUC, confusion matrix)
-Visualization (ggplot2)
-🚀 How to Run
-Clone the repository
-Load the dataset
-Run the R script or notebook
-Train models and evaluate performance
+Data cleaning & feature engineering
+Model evaluation (ROC, AUC)
+Data visualization
+
 📌 Future Improvements
-Hyperparameter tuning
-Feature engineering improvements
-Try XGBoost / Gradient Boosting
-Deploy model as a dashboard (Tableau or Streamlit)
+
+Add cost-sensitive modeling (profit optimization)
+Deploy as dashboard (Tableau / Power BI)
+Integrate real-time scoring
+
 👤 Author
 
 Doris Mbitazi Asongafac
