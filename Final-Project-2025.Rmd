@@ -1,0 +1,579 @@
+---
+title: "Final Project"
+author: "Doris Mbitazi Asongafac"
+date: "2025-08-02"
+output:
+  html_document:
+    df_print: paged
+---
+
+## Background
+A national veterans’ organization aims to develop a predictive model to improve the cost-effectiveness of its direct marketing campaigns. With an in-house database of over 13 million donors, the organization is one of the largest direct-mail fundraisers in the United States. According to recent mailing records, the overall response rate is 5.1%. Among those who donated, the average gift is $13.00. Each mailing—containing personalized address labels and assorted cards—costs $0.68 to produce and send. Given these figures, a sample dataset has been drawn to develop a classification model that captures likely donors and maximizes expected net profit. Weighted sampling was used to balance the training data, ensuring equal representation of donors and non-donors.
+
+## Business Problem
+The organization spends $0.68 per mailer, but only 5.1% of recipients respond, resulting in low returns when mailing to everyone. To avoid unnecessary costs, a more efficient, data-driven targeting strategy is needed.
+
+## Objective
+The objective is to build a predictive classification model that identifies likely donors from a pool of candidates, in order to maximize the expected net profit of the direct-mail fundraising campaign.
+
+## Project Goal
+The goal of this project is to develop a classification model that enables the veterans’ organization to target the right individuals for mailing campaigns. With a low historical response rate and a per-unit cost of $0.68, the model should identify individuals who are most likely to respond positively.
+
+Instead of mailing to the full list—which leads to wasted costs—the model will predict donor likelihood using historical data. Mailings will be restricted to those with a high predicted probability of donating.
+
+The model must also account for the asymmetric cost structure of the campaign:
+- True Positive (correctly predicted donor) → Profit = $13.00 - $0.68 = $12.32
+- False Positive (incorrectly predicted donor) → Loss = $0.68
+
+Thus, the model should not only perform well in classification metrics like accuracy or recall, but also focus on maximizing expected net profit by reducing costly false positives while identifying valuable true positives.
+
+## Data Description and Cleaning
+This project uses two datasets from a national veterans’ organization: the training dataset fundraising.csv with 3,000 records and 21 variables, and the scoring dataset future_fundraising.csv with 120 records and 20 variables (excluding the target). The training data was created using weighted sampling to balance donors and non-donors evenly (50% each), allowing the model to better learn donor patterns despite the original population’s low 5.1% donor rate. This avoids bias from a simple random sample dominated by non-donors. The datasets had no missing values, but categorical variables such as zip code groups (zipconvert2 to zipconvert5), homeowner, female, and target were converted from character to factor types. Numeric variables including num_child, income, wealth, home_value, med_fam_inc, avg_fam_inc, pct_lt15k, num_prom, months_since_donate, and time_lag were converted to numeric types. The data was then split into an 80/20 train-validation partition (2,401 and 599 records respectively), preserving class balance to support robust model evaluation.
+
+**Load required libraries**
+```{r}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(MASS)
+library(car)
+#library(glmnet)
+library(corrplot)
+library(pROC)
+library(e1071)
+library(ROCR)
+#library(VIM)
+library(ggplot2)
+library(gridExtra)
+
+```
+
+# Data Loading and Cleaning
+```{r}
+# Data Loading
+fundraising <- read.csv("Final Project/fundraising.csv")
+future_fundraising <- read.csv("Final Project/future_fundraising.csv")
+
+#Copy of the dataset
+df = fundraising
+
+#Check missing values
+sum(is.na(df))
+sum(is.na(future_fundraising))
+
+#Check dimensions of the datasets
+dim(df)
+dim(future_fundraising)
+
+#See the target distibution
+table(df$target)
+```
+```{r}
+#Structure of the data
+str(df)
+```
+
+```{r}
+# Convert incorrect classes to their correct classes
+
+#Convert characters to factor variables
+df$zipconvert2 <- as.factor(df$zipconvert2)
+df$zipconvert3 <- as.factor(df$zipconvert3)
+df$zipconvert4 <- as.factor(df$zipconvert4)
+df$zipconvert5 <- as.factor(df$zipconvert5)
+df$homeowner <- as.factor(df$homeowner)
+df$female <- as.factor(df$female)
+df$target <- as.factor(df$target)
+
+#Convert integers to numeric variables
+df$num_child <- as.numeric(df$num_child)
+df$income <- as.numeric(df$income)
+df$wealth <- as.numeric(df$wealth)
+df$home_value <- as.numeric(df$home_value)
+df$med_fam_inc <- as.numeric(df$med_fam_inc)
+df$avg_fam_inc <- as.numeric(df$avg_fam_inc)
+df$pct_lt15k <- as.numeric(df$pct_lt15k)
+df$num_prom <- as.numeric(df$num_prom)
+df$months_since_donate <- as.numeric(df$months_since_donate)
+df$time_lag <- as.numeric(df$time_lag)
+
+#Verify the change
+str(df)
+```
+## Step 1: Partitioning. You might think about how to estimate the out of sample error. Either partition the dataset into 80% training and 20% validation or use cross validation (set the seed to 12345).  
+   To evaluate model performance reliably, the dataset was randomly split into training and validation sets using an 80/20 ratio. A fixed seed (set.seed(12345)) was set to ensure reproducibility. This partitioning resulted in 2,401 records for training and 599 for validation, with the class distribution of donors and non-donors balanced evenly in both sets. 
+
+```{r}
+## Step 1: Partitioning
+# Set seed for reproducibility
+set.seed(12345)
+# Create training and validation sets using your 'df' dataset
+train_index <- createDataPartition(df$target, p = 0.8, list = FALSE)
+train_data <- df[train_index, ]
+test_data <- df[-train_index, ]
+
+#See the dimensions of the train and test sets
+dim(train_data)
+dim(test_data)
+
+# Verify target distribution in both sets
+print(table(train_data$target))
+print(table(test_data$target))
+
+```
+## Step 2: Model Building. Follow the following steps to build, evaluate, and choose a model.  
+
+**Exploratory data analysis. Examine the predictors and evaluate their association with the response variable. Which might be good candidate predictors? Are any collinear with each other?**  
+
+```{r}
+# Examine distribution of target variable
+
+# Calculate percentages
+target_counts <- train_data %>%
+  count(target) %>%
+  mutate(percentage = n / sum(n) * 100,
+         label = paste0(round(percentage, 1), "%"))
+
+# Plot with percentage labels
+ggplot(target_counts, aes(x = target, y = n, fill = target)) +
+  geom_col() +
+  geom_text(aes(label = label), vjust = -0.05, size = 5) +
+  labs(title = "Distribution of Target Variable",
+       x = "Target", y = "Count") +
+  theme_minimal()
+
+```
+Shows a perfectly balanced dataset with exactly 50% donors and 50% non-donors. This balanced distribution is ideal for classification modeling as it eliminates class imbalance concerns.
+
+```{r}
+library(patchwork)
+# Key numeric variables
+key_numeric_vars <- c("lifetime_gifts", "largest_gift", "last_gift", "avg_gift",
+                      "months_since_donate", "num_prom", "wealth", "income")
+
+# Generate a list of plots
+plot_list <- lapply(key_numeric_vars, function(var) {
+  ggplot(train_data, aes_string(x = "target", y = var, fill = "target")) +
+    geom_boxplot() +
+    labs(title = paste("Distribution of\n", var, "\nby Target"),
+         x = "Target", y = var) +
+    theme_minimal() +
+    scale_fill_manual(values = c("#1f77b4", "#ff7f0e")) +
+    theme(legend.position = "none",
+          plot.title = element_text(size = 10))
+})
+
+# Combine and display plots in a 4x4 grid (will auto-adjust if fewer than 16)
+wrap_plots(plot_list, ncol = 4)
+
+```
+Lifetime gifts, largest gift, last gift, avg gift: All show heavy right skew with many outliers. Donors and non-donors appear to have similar distributions for these variables, suggesting they may not be strong predictors on their own.
+- Months since donate: Shows similar distributions between groups with medians around 30-35 months, indicating this temporal factor may not strongly differentiate donors from non-donors.
+- Number of promotions: Donors appear to receive slightly fewer promotions on average than non-donors, which is counterintuitive and may suggest targeting inefficiencies.
+- Wealth and Income: Both groups show similar distributions with many outliers, suggesting these socioeconomic factors alone may not be strong predictors of donation behavior.
+
+```{r}
+cat_vars <- c("zipconvert2", "zipconvert3", "zipconvert4", 
+                      "zipconvert5", "homeowner", "female")
+# Create list of categorical plots
+cat_plot_list <- list()
+for(i in 1:length(cat_vars)) {
+  var <- cat_vars[i]
+  # Create proportion table for plotting
+  prop_data <- train_data %>%
+    group_by(!!sym(var), target) %>%
+    summarise(count = n(), .groups = "drop") %>%
+    group_by(!!sym(var)) %>%
+    mutate(prop = count / sum(count))
+  
+  cat_plot_list[[i]] <- ggplot(prop_data, aes_string(x = var, y = "prop", fill = "target")) +
+    geom_bar(stat = "identity", position = "dodge") +
+    labs(title = paste(var),
+         x = var, y = "Proportion") +
+    theme_minimal() +
+    theme(legend.position = if(i == length(cat_vars)) "right" else "none",
+          axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+# Arrange categorical plots in grid
+grid.arrange(grobs = cat_plot_list, ncol = 3,
+             top = "Distribution of Categorical Variables by Target")
+```
+Zipconvert variables (2-5): All show nearly identical proportions between donors and non-donors across categories, indicating these zip code conversion variables have little discriminatory power.
+
+Homeowner: There is a noticeable difference here: the proportion of non-donors is higher among non-homeowners (No), whereas donors are slightly more likely to be homeowners (Yes). This indicates that being a homeowner might be positively associated with donating.
+
+Female: The proportions of donors and non-donors among males (No) and females (Yes) are almost equal, indicating gender is not a significant predictor in this dataset.
+
+Overall, the individual variables show surprisingly weak associations with the target variable, suggesting that donation behavior may depend on complex interactions between variables rather than simple univariate relationships.
+
+```{r}
+# Correlation
+# Select only numeric columns
+numeric_vars <- train_data %>% select_if(is.numeric)
+
+
+# Create correlation matrix
+cor_matrix <- cor(numeric_vars)
+cor_matrix
+
+# Plot the correlation matrix
+corrplot(cor_matrix, 
+         method = "color",       
+         type = "upper",        
+         order = "hclust",      
+         addCoef.col = "black", 
+         number.cex = 0.6,       
+         tl.cex = 0.8,           
+         tl.col = "black",       
+         tl.srt = 45,            
+         mar = c(0, 0, 1, 0),   
+         title = "Correlation Matrix of Numeric Features")
+
+
+```
+**Highly Correlated Variable Pairs**
+
+| Variable 1     | Variable 2    | Correlation |
+|:---------------|:--------------|:-----------:|
+| `med_fam_inc`  | `avg_fam_inc` | **0.971**   |
+| `avg_fam_inc`  | `home_value`  | **0.748**   |
+| `med_fam_inc`  | `home_value`  | **0.733**   |
+| `largest_gift` | `avg_gift`    | **0.730**   |
+| `last_gift`    | `avg_gift`    | **0.860**   |
+| `largest_gift` | `last_gift`   | **0.749**   |
+
+## Select classification tool and parameters  
+**Run at least two classification models of your choosing. Describe the two models that you chose, with sufficient detail (method, parameters, variables, etc.) so that it can be reproduced.** 
+
+## Type of Analysis performed
+The classification models used in this analysis are Stepwise Logistic Regression, Random Forest model, and Support Vector Machine with Radial as the Kernel.
+
+# MODEL 1: STEPWISE LOGISTIC REGRESSION
+```{r}
+# Set seed for reproducibility across all models
+set.seed(12345)
+
+# Method Description:
+# - Uses forward, backward, and bidirectional stepwise selection
+# - Based on Akaike Information Criterion (AIC) for variable selection
+# - Automatically selects the most predictive variables
+# - Fits a logistic regression model with selected variables
+
+# Fit full logistic regression model (starting point)
+full_model <- glm(target ~ ., data = train_data, family = binomial)
+
+# Fit null model (intercept only)
+null_model <- glm(target ~ 1, data = train_data, family = binomial)
+
+# Perform stepwise selection using AIC
+# Direction "both" allows forward and backward steps
+stepwise_model <- stepAIC(null_model, 
+                         scope = list(lower = null_model, upper = full_model),
+                         direction = "both",
+                         trace = TRUE)  
+summary(stepwise_model)
+
+
+```
+
+```{r}
+# Check Multicollinerity
+vif(stepwise_model)
+```
+Because all VIF are less than 5, multicollinearity is not an issue.
+```{r}
+set.seed(12345)
+# Make predictions on test set
+stepwise_pred_prob <- predict(stepwise_model, test_data, type = "response")
+stepwise_pred_class <- ifelse(stepwise_pred_prob > 0.5, "Donor", "No Donor")
+stepwise_pred_class <- factor(stepwise_pred_class, levels = c("Donor", "No Donor"))
+
+# Calculate performance metrics
+stepwise_roc <- roc(test_data$target, stepwise_pred_prob)
+stepwise_auc <- auc(stepwise_roc)
+
+print(paste("Stepwise Logistic Regression AUC:", round(stepwise_auc, 4)))
+print("Stepwise Logistic Regression Confusion Matrix:")
+print(confusionMatrix(stepwise_pred_class, test_data$target, positive = "Donor"))
+```
+# MODEL 2: RANDOM FOREST
+```{r}
+# Method Description:
+# - Ensemble method using bootstrap aggregation of decision trees
+# - Each tree trained on bootstrap sample of training data
+# - At each split, random subset of variables considered
+# - Final prediction: majority vote 
+
+# Set seed for reproducibility
+set.seed(12345)
+# Train Random Forest model
+rf_model <- randomForest(
+  target ~ .,
+  data = train_data,
+  ntree = 500,
+  mtry = 4,  
+  nodesize = 5,
+  importance = TRUE
+)
+
+print(rf_model)
+
+# Predictions
+rf_pred_prob <- predict(rf_model, test_data, type = "prob")[,"Donor"]
+rf_pred_class <- predict(rf_model, test_data, type = "response")
+
+# Performance
+rf_roc <- roc(test_data$target, rf_pred_prob)
+rf_auc <- auc(rf_roc)
+
+print(paste("Random Forest AUC:", round(rf_auc, 4)))
+print(confusionMatrix(rf_pred_class, test_data$target, positive = "Donor"))
+```
+```{r}
+# Variable Importance
+importance_scores <- importance(rf_model)
+importance_df <- data.frame(
+  Variable = rownames(importance_scores),
+  Importance = importance_scores[,"MeanDecreaseGini"]
+)
+importance_df <- importance_df[order(importance_df$Importance, decreasing = TRUE),]
+print(head(importance_df, 10))
+```
+
+```{r}
+# Next create variance importance plot
+top_vars <- head(importance_df, 10)
+
+# Plot
+ggplot(top_vars, aes(x = reorder(Variable, Importance), y = Importance, fill = Importance)) +
+  geom_col() +
+  coord_flip() +  # flip to horizontal bars
+  labs(title = "Top 10 Variable",
+       x = "Variable",
+       y = "Importance") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+
+```
+
+# MODEL 3: SUPPORT VECTOR MACHINE (SVM)
+```{r}
+set.seed(12345) # for reproducibility
+# Scale the data for SVM
+train_scaled <- train_data
+test_scaled <- test_data
+
+# Scale numeric variables
+numeric_vars <- sapply(train_data, is.numeric)
+train_scaled[numeric_vars] <- scale(train_data[numeric_vars])
+
+# Use same scaling parameters for test data
+scaling_params <- attributes(scale(train_data[numeric_vars]))
+test_scaled[numeric_vars] <- scale(test_data[numeric_vars], 
+                                  center = scaling_params$`scaled:center`,
+                                  scale = scaling_params$`scaled:scale`)
+
+# Train SVM model
+svm_model <- svm(
+  target ~ .,
+  data = train_scaled,
+  kernel = "radial",
+  cost = 10,
+  gamma = 0.1,
+  probability = TRUE
+)
+
+print(svm_model)
+
+# Predictions
+svm_pred <- predict(svm_model, test_scaled, probability = TRUE)
+svm_pred_prob <- attr(svm_pred, "probabilities")[,"Donor"]
+svm_pred_class <- svm_pred
+
+# Performance
+svm_roc <- roc(test_data$target, svm_pred_prob)
+svm_auc <- auc(svm_roc)
+
+print(paste("SVM AUC:", round(svm_auc, 4)))
+print(confusionMatrix(svm_pred_class, test_data$target, positive = "Donor"))
+
+```
+
+## Classification under asymmetric response and cost.
+**Comment on the reasoning behind using weighted sampling to produce a training set with equal numbers of donors and non-donors? Why not use a simple random sample from the original dataset?**  
+
+- Weighted sampling balances classes so the model sees equal donors and non-donors.
+- This prevents bias toward the majority class, which happens with simple random samples.
+- It helps the model learn minority class patterns better, improving detection (recall) of donors.
+- Also, it addresses asymmetric costs by reducing costly false negatives of missing donors.
+
+## Evaluate the fit
+**Examine the out of sample error for your models. Use tables or graphs to display your results. Is there a model that dominates?** 
+```{r}
+# Based on the confusion matrices and AUC values from the output
+
+# Performance metrics for each model
+# Based on the confusion matrices and AUC values from the output
+# Performance metrics for each model
+performance_data <- data.frame(
+  Model = c("Stepwise Logistic", "Random Forest", "SVM"),
+  Accuracy = c(0.4524, 0.5175, 0.5058),
+  Sensitivity = c(0.4181, 0.5585, 0.4515),
+  Specificity = c(0.4867, 0.4767, 0.5600),
+  AUC = c(0.5504, 0.5267, 0.4999),
+  stringsAsFactors = FALSE
+)
+precision <- c(0.4480, 0.5154, 0.5056)
+recall <- performance_data$Sensitivity
+performance_data$F1_Score <- 2 * (precision * recall) / (precision + recall)
+
+# Add error rate (1 - Accuracy)
+performance_data$Error_Rate <- 1 - performance_data$Accuracy
+
+# Create formatted performance table
+performance_table <- performance_data
+performance_table[, 2:7] <- round(performance_table[, 2:7], 4)
+print(performance_table)
+```
+
+```{r}
+# Performance summary
+model_comparison <- data.frame(
+  Model = c("Stepwise Logistic Regression", "Random Forest", "SVM (RBF)"),
+  AUC = round(c(stepwise_auc, rf_auc, svm_auc), 4)
+)
+
+# Sort by AUC
+model_comparison <- model_comparison[order(model_comparison$AUC, decreasing = TRUE),]
+print(model_comparison)
+
+# ROC Curves Plot
+plot(stepwise_roc, col = "blue", main = "ROC Curves Comparison", lwd = 2)
+plot(rf_roc, col = "red", add = TRUE, lwd = 2)
+plot(svm_roc, col = "green", add = TRUE, lwd = 2)
+legend("bottomright", 
+       legend = c(paste("Stepwise LR (AUC =", round(stepwise_auc, 3), ")"),
+                  paste("Random Forest (AUC =", round(rf_auc, 3), ")"),
+                  paste("SVM RBF (AUC =", round(svm_auc, 3), ")")),
+       col = c("blue", "red", "green"), 
+       lty = 1, lwd = 2, cex = 0.8)
+
+```
+```{r}
+# Create accuracy bar plot ordered by descending accuracy
+accuracy_plot <- ggplot(performance_data, aes(x = reorder(Model, -Accuracy), y = Accuracy, fill = Model)) +
+  geom_bar(stat = "identity", alpha = 0.7, width = 0.6) +
+  geom_text(aes(label = paste0(round(Accuracy * 100, 1), "%")), 
+            vjust = -0.3, size = 4) +
+  labs(title = "Model Accuracy Comparison", 
+       x = "Model", 
+       y = "Accuracy") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, size = 14),
+        axis.text.x = element_text(size = 11),
+        axis.text.y = element_text(size = 11)) +
+  scale_y_continuous(limits = c(0, 0.6), 
+                     labels = scales::percent_format()) +
+  scale_fill_brewer(type = "qual", palette = "Set2")
+print(accuracy_plot)
+```
+
+
+## Select best model
+**From your answer in (4), what do you think is the “best” model?**  
+Random Forest dominates in the most critical areas:
+- Sensitivity (55.85%) - Highest ability to identify actual donors
+- Captures 14+ percentage points more donors than Stepwise Logistic (41.81%)
+- Captures 10+ percentage points more than SVM (45.15%)
+- F1-Score (0.5361) - Best balance between precision and recall for donor prediction. It significantly outperforms both Logistic and support vector models and it has the
+- Lowest Error Rate (48.25%) - Making it the most reliable overall performance
+
+## Step 3: Testing
+**Using your “best” model from Step 2 (number 4), which of these candidates do you predict as donors and non-donors? Use your best model and predict whether the candidate will be a donor or not. Upload your prediction to the leaderboard and comment on the result.**  
+```{r}
+# Load the future fundraising test data
+future_fundraising <- read.csv("Final Project/future_fundraising.csv")
+
+# Convert character variables to factors to match df data format
+future_fundraising$zipconvert2 <- factor(future_fundraising$zipconvert2, levels = c("No", "Yes"))
+future_fundraising$zipconvert3 <- factor(future_fundraising$zipconvert3, levels = c("No", "Yes"))
+future_fundraising$zipconvert4 <- factor(future_fundraising$zipconvert4, levels = c("No", "Yes"))
+future_fundraising$zipconvert5 <- factor(future_fundraising$zipconvert5, levels = c("No", "Yes"))
+future_fundraising$homeowner <- factor(future_fundraising$homeowner, levels = c("No", "Yes"))
+future_fundraising$female <- factor(future_fundraising$female, levels = c("No", "Yes"))
+
+# Convert integer variables to numeric to match df data
+future_fundraising$num_child <- as.numeric(future_fundraising$num_child)
+future_fundraising$income <- as.numeric(future_fundraising$income)
+future_fundraising$wealth <- as.numeric(future_fundraising$wealth)
+future_fundraising$home_value <- as.numeric(future_fundraising$home_value)
+future_fundraising$med_fam_inc <- as.numeric(future_fundraising$med_fam_inc)
+future_fundraising$avg_fam_inc <- as.numeric(future_fundraising$avg_fam_inc)
+future_fundraising$pct_lt15k <- as.numeric(future_fundraising$pct_lt15k)
+future_fundraising$num_prom <- as.numeric(future_fundraising$num_prom)
+future_fundraising$months_since_donate <- as.numeric(future_fundraising$months_since_donate)
+future_fundraising$time_lag <- as.numeric(future_fundraising$time_lag)
+
+# Check the updated structure
+str(future_fundraising)
+```
+
+```{r}
+# Make predictions using the Random Forest model
+future_predictions <- predict(rf_model, future_fundraising, type = "response")
+
+# Create submission dataframe with required format
+submission <- data.frame(value = future_predictions)
+
+# Display first few predictions
+print(head(submission, 10))
+
+# Summary of predictions
+table(submission$value)
+```
+# Exclusions
+Out of all the models, the only model that excluded predictors was the stepwise logistic regression model. The following predictors were excluded from the final model; zipconvert2, zipconvert3, zipconvert4, zipconvert5, homeowner, female, wealth, med_fam_inc, pct_lt15k, lifetime_gifts, largest_gift, time_lag, and avg_gift.
+
+# Variable transformations
+As mentioned earlier in Data description and Cleaning, all character variables were converted to factors and all integers to numerical variables.
+
+# Best Model
+After running the stepwise logistic regression model, random forest and support vector models. The model that perform best in terms of accurately predicting actual donors with the lowest error rate  was the Random forest model.
+
+# Significant Predictors (p < 0.05):
+- months_since_donate (p = 9.75e-10):
+Most significant predictor: Number of months from last donation to July 2018
+Positive coefficient (0.0689): longer time since last donation increases likelihood of being classified as a current donor. This suggests the model may be identifying donors who gave earlier but are still considered "active".
+
+- income (p = 0.00106)
+Household income in hundreds of dollars
+Negative coefficient (-0.0908): Higher household income reduces donation probability. Suggests donors may come from middle/lower income households rather than wealthy ones.
+
+- last_gift (p = 0.00327)
+Dollar amount of most recent gift
+Positive coefficient (0.0126): Larger previous gifts predict future donations
+which makes sense, generous past donors are likely to donate again.
+
+- home_value (p = 0.00849)
+Average home value in donor's neighborhood (hundreds of dollars)
+Negative coefficient (-0.0002): Higher neighborhood home values reduce donation likelihood and this is consistent with income finding, wealthier neighborhoods are less likely to donate
+
+- num_child (p = 0.0351)
+Number of children
+Positive coefficient (0.265): More children increases donation probability
+
+```{r}
+# Write to CSV file for submission
+write.csv(submission, "future_fundraising_predictions.csv", row.names = FALSE)
+
+```
+
+```{r}
+read = read.csv("future_fundraising_predictions.csv")
+head(read, 10)
+```
+
